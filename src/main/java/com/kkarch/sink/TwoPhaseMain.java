@@ -1,10 +1,7 @@
-package com.kkarch.wordcount;
+package com.kkarch.sink;
 
 import org.apache.flink.api.common.functions.FlatMapFunction;
 import org.apache.flink.api.java.tuple.Tuple2;
-import org.apache.flink.runtime.state.hashmap.HashMapStateBackend;
-import org.apache.flink.runtime.state.memory.MemoryStateBackend;
-import org.apache.flink.runtime.state.storage.FileSystemCheckpointStorage;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer;
@@ -13,18 +10,20 @@ import org.apache.flink.util.Collector;
 
 import java.util.Properties;
 
-
 /**
  * @author wangkai
- * @date 2024/2/4 15:00
+ * @date 2024/2/7 7:53
  **/
-public class WordCount1 {
+public class TwoPhaseMain {
+
 
     public static void main(String[] args) throws Exception {
         // 写一个 flink 版本的 wordcount
         // 创建执行环境
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-        env.enableCheckpointing(5000);
+        env.enableCheckpointing(10*1000);
+        env.setParallelism(1);
+
         env.getCheckpointConfig().setCheckpointStorage("file:///d:/flink/checkpoint");
         // 创建Kafka消费者
         Properties properties = new Properties();
@@ -37,12 +36,15 @@ public class WordCount1 {
 
         // 数据转换和聚合
         DataStream<Tuple2<String, Integer>> counts = text
-                .flatMap(new Tokenizer())
+                .flatMap(new TwoPhaseMain.Tokenizer())
                 .keyBy(0)
                 .sum(1);
 
         // 输出结果
         counts.print();
+
+//        counts.addSink(new TwoPhaseMysqlSink());
+        counts.addSink(new TwoPhaseFileSink());
 
         // 执行任务
         env.execute("WordCount Example");
@@ -52,7 +54,7 @@ public class WordCount1 {
         @Override
         public void flatMap(String value, Collector<Tuple2<String, Integer>> out) {
             // normalize and split the line into words
-            String[] words = value.toLowerCase().split("\\W+");
+            String[] words = value.split("\\W+");
 
             // emit the words
             for (String word : words) {
